@@ -1,0 +1,41 @@
+hydra:
+  job:
+    chdir: True
+
+dataset:
+  _target_: src.datasets.LibriMix.LibriMixDataset
+  dir: "MiniLibriMix/metadata"
+
+model:
+  _target_: src.models.base.WavDPRNN
+  from_pretrained: True
+  n_src: 2
+
+inferencer:
+  _target_: src.inferencers.base
+
+metrics:
+  - name: "snr"
+    instance:
+      _target_: src.metrics.metrics.SNRMetric
+      func_type: "snr"
+
+  - name: "si-snr"
+    instance:
+      _target_: src.metrics.metrics.SNRMetric
+      func_type: "si-snr"
+
+inference:
+  outPath: ./inferenceResult.csv
+  outMetricsPath: ./inferenceResultMetrics.csv
+  preprocessing:
+    sr: 16000
+
+checkpointPath: null
+nCheckpoints: 10 #number of checkpoints in the checkpoint queue
+newCheckpointsPath: ./chkpts
+
+logs:
+  logDir: "./logs/"
+  loggingPeriod: 1
+  wandbCredentials: null
