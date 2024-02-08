@@ -1,12 +1,10 @@
 import logging
 
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
-from src.models.base import WavDPRNN
 from src.datasets.LibriMix import LibriMixDataset
 from src.inferencers.base import Inferencer
 from src.reporters.base import Reporter
-from src.metrics.metrics import *
 
 import hydra
 
@@ -19,7 +17,7 @@ def main(cfg: DictConfig):
 
     model = hydra.utils.instantiate(
         cfg["model"],
-        n_src=cfg["model"]["n_src"],
+        cfg["model"]["n_src"],
         from_pretrained=cfg["model"]["from_pretrained"]
     )
 
@@ -30,11 +28,12 @@ def main(cfg: DictConfig):
         el["name"]: hydra.utils.instantiate(el["instance"])
         for el in cfg["metrics"]
     }
+
     inferencer = Inferencer(
         cfg, model, dataloader, reporter, metrics, logger
     )
 
-    inferencer.validationRun()
+    inferencer.validationRun(updatePeriod=1)
 
 
 if __name__ == "__main__":

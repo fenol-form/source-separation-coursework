@@ -1,6 +1,7 @@
 import os
 import sys
 
+import hydra
 import torch
 import torchaudio
 import soundfile as sf
@@ -98,7 +99,7 @@ class Inferencer(object):
         self.logger.info("Using checkpoint: %s" % self.checkpointPath)
 
         # set up the checkpoint
-        if (self.checkpointPath is None):
+        if self.checkpointPath is None:
             self.logger.info("WARNING! checkpointPath is None, are you using BaseModelInferencer?")
         else:
             checkpoint = torch.load(self.checkpointPath, map_location='cpu')
@@ -109,6 +110,10 @@ class Inferencer(object):
             self.logger.info("WARNING! load_state_dict_failed, expected load_state_dict in the child init")
 
         self.model.eval()
+
+        # turn off gradient's calculation
+        for param in self.model.parameters():
+            param.requires_grad = False
 
     def oneRun(self, datasetEl):
         """
@@ -124,18 +129,12 @@ class Inferencer(object):
             datasetEl = loadObj(datasetEl, self.device)
         return self.model(datasetEl)
 
-    def extractElement(self, dataEl):
-        if isinstance(dataEl, tuple) or isinstance(dataEl, list):
-            if len(dataEl) == 2:
-                return dataEl[0], dataEl[1]
-            elif len(dataEl) == 1:
-                return dataEl[0]
-            else:
-                raise ValueError("expected list or tuple of length == 1, 2")
-        else:
-            return dataEl
+    def extractBatch(self, dataEl):
+        if "target" in dataEl:
+            return dataEl["mixture"], dataEl["target"]
+        return dataEl["mixture"]
 
-    def extractPrediction(self, dataEl):
+    def extractPrediction(self, model_out):
         """
         Extracts the prediction of the model from dataElement
 
@@ -143,7 +142,7 @@ class Inferencer(object):
         -----------------
         DatasetElement dataEl -- dataset element, formally dict
         """
-        return NotImplementedError
+        return model_out["preds"]
 
     def extractTarget(self, dataEl):
         """
@@ -164,41 +163,20 @@ class Inferencer(object):
         torch.Tensor preds -- predictions (N,)
         torch.Tensor targets -- targets (N,)
         """
-        resultDict = {metricName: {key: metric(preds[key], targets[key]) for key in self.model.criteriaTitles} for
-                      metricName, metric in self.metrics.items()}
-        try:
-            resultDict.update({metricName: {**resultDict[metricName], **{key: 0
-                                                                         for key in ["grade1", "grade2"]}} for
-                               metricName in self.metrics.keys()
-                               }
-                              )
-            resultDict["MAE"]["grade1"] = self.metrics["MAE"](preds["grade1"], targets["grade1"])
-            resultDict["MAE"]["grade2"] = self.metrics["MAE"](preds["grade1"], targets["grade2"])
-        except Exception as e:
-            self.logger.info("Failed to find MAE: " + str(e))
-            raise e
-        return resultDict
+        resultDict = {metricName: sum([self.metrics[metricName](pred, target).item()
+                                       for pred, target in zip(preds, targets)]) / len(preds)
+                      for metricName in self.metrics.keys()}
+        return [{metricName: resultDict[metricName]} for metricName in resultDict.keys()]
 
-    def parseCriteriaMetrics(self, computedMetrics, criteriaTitles):
-        """
-        Transforms the computedMetrics into separate criterion-metric columns for further processing in DataFrame
-
-        Parameters
-        -------------------------------------------------------
-        Dict computedMetrics -- metrics in the form of a dict (e.g. {"Accuracy": [0.4, 0.8]})
-        str[] criteriaTitles -- titles of the criteria (e.g. ["Fluency","Grammar"])
-        """
-        return NotImplementedError
-
-    def processPreds(self, preds):
-        return NotImplementedError
+    def processPreds(self, preds) -> torch.Tensor:
+        return preds
 
     def processTargets(self, targets):
         """
         Transforms targets in format [{ grade1X: , grade1Y: .....}]
         to format {grade1X: ..., grade1Y: ... }
         """
-        return NotImplementedError
+        return targets
 
     def validationRun(self, updatePeriod=50):
         """
@@ -219,13 +197,15 @@ class Inferencer(object):
         for el in self.dataloader:
             try:
                 time0Inference = time.time()  # inference time measurement
-                el, target = self.extractElement(el)
+                el, target = self.extractBatch(el)
                 out = self.oneRun(el)
                 t0 = time.time() - time0Inference
                 preds.append(self.extractPrediction(out))
-                targets.append(self.extractTarget(el))
+                targets.append(target)
 
                 out.update({"inferenceTime": t0})
+
+                del out["preds"]
                 outData.append(out)
             except ValueError as e:
                 self.logger.info(str(e))
@@ -241,7 +221,7 @@ class Inferencer(object):
         preds = self.processPreds(preds)
         targets = self.processTargets(targets)
 
-        metrics = self.parseCriteriaMetrics(self.computeMetrics(preds, targets), self.model.criteriaTitles)
+        metrics = self.computeMetrics(preds, targets)
         self.reporter.forceReport()
         if self.outPath:
             self.saveInferencerData(outData, metrics)
@@ -249,7 +229,7 @@ class Inferencer(object):
         self.reporter.reset()
 
     def saveInferencerData(self, outData, metrics):
-        '''
+        """
         Saves inferencer data into file
 
         Parameters
@@ -257,7 +237,7 @@ class Inferencer(object):
         List outData -- list of observations (with removed audio)
         dict metrics -- metrics data
         str outPath -- path to file to save
-        '''
+        """
         df = pd.DataFrame(outData)
         df.to_csv(self.outPath)
         df2 = pd.DataFrame(metrics)
@@ -272,7 +252,7 @@ class Inferencer(object):
         audioTensor, sr = sf.read(path)
         # force mono audio
         # anyway, it's mono (N,)....but sometimes not
-        if (len(audioTensor.shape) > 1):
+        if len(audioTensor.shape) > 1:
             # most probably it's the smallest dim unless you have 2-sample audio
             minDim = np.where(np.array(audioTensor).shape == np.amin(np.array(audioTensor.shape)))[0][0]
             # print("MinDim", minDim)
@@ -284,27 +264,20 @@ class Inferencer(object):
         return audioTensor
 
     def preprocessAudio(self, audioTensor):
-        '''
+        """
         Preprocesses audio before sending to the model
-        '''
+        """
         with torch.no_grad():
             for i in np.arange(len(self.preprocessingModules)):
                 audioTensor = self.preprocessingModules[i](audioTensor)
             return audioTensor
 
-    def oneAudioRun(self, audioPath, audioType="topic"):
-        '''
+    def oneAudioRun(self, audioPath):
+        """
         Preprocesses audio before sending to the model
         Input
         str audioPath -- path to audio file
         str audioType -- model to use (set of topic)
-        '''
+        """
         audio = self.preprocessAudio(self.loadAudio(audioPath))
-        if audioType == "topic":
-            batch = {"topicAudio": audio.unsqueeze(0)}
-        elif audioType == "set":
-            batch = {"setAudio": audio.unsqueeze(0)}
-        else:
-            raise AudioTypeError(audioType)
-
-        return self.oneRun(batch)
+        return self.oneRun(audio)

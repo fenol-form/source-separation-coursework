@@ -39,9 +39,7 @@ class Reporter:
         """
         Adds the data to buffer and reports when loggingPeriod ends and makes reset()
         """
-        self.step = reportData["step"]
-        self.mode = mode
-        self.logger.info("addAndReport, step " + str(self.step) + " mode " + self.mode)
+        self.logger.info("WARNING: method 'addAndReport' is not implemented yet!")
         # raise NotImplementedError
 
     def forceReport(self, mode="train"):

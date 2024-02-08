@@ -4,15 +4,11 @@ hydra:
 
 dataset:
   _target_: src.datasets.LibriMix.LibriMixDataset
-  dir: "MiniLibriMix/metadata"
+  dir: "MiniLibriMix/metadata/train"
 
 model:
   _target_: src.models.models.DullModel
-  from_pretrained: True
   n_src: 2
-
-inferencer:
-  _target_: src.inferencers.base
 
 metrics:
   - name: "snr"
@@ -25,15 +21,31 @@ metrics:
       _target_: src.metrics.metrics.SNRMetric
       func_type: "si-snr"
 
-inference:
-  outPath: ./inferenceResult.csv
-  outMetricsPath: ./inferenceResultMetrics.csv
-  preprocessing:
-    sr: 16000
-
 checkpointPath: null
 nCheckpoints: 10 #number of checkpoints in the checkpoint queue
 newCheckpointsPath: ./chkpts
+
+
+optimizer:
+  _target_: torch.optim.Adam
+  lr: 0.001
+
+loss:
+  _target_: src.metrics.metrics.SNRMetric
+
+lrScheduler:
+  _target_: torch.optim.lr_scheduler.OneCycleLR
+  steps_per_epoch: 100
+  total_steps: 15000
+  epochs: 50
+  anneal_strategy: cos
+  max_lr: 0.01
+  pct_start: 0.2
+
+trainer:
+  epochs: 3
+  chkptDir: /chkpts
+  chkptsInQueue: 10
 
 logs:
   logDir: "./logs/"

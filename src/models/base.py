@@ -13,7 +13,7 @@ class BaseModel(nn.Module):
     def forward(self, x):
         raise NotImplemented
 
-    def separate(self, mixture: torch.Tensor) -> Tuple[torch.Tensor]:
+    def separate(self, mixture: torch.Tensor):
         raise NotImplemented
 
 
@@ -32,7 +32,7 @@ class WavDPRNN(BaseModel):
             self.__asteroid_model = asteroid.models.DPRNNTasNet(*args, **kwargs)
 
     def forward(self, x):
-        return self.__asteroid_model(x)
+        return {"preds": self.__asteroid_model(x)}
 
     def separate(self, mixture: torch.Tensor) -> Tuple[torch.Tensor]:
         return self.__asteroid_model.separate(mixture)

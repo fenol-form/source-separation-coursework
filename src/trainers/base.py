@@ -36,7 +36,7 @@ class Trainer(object):
     def __init__(self, model, metrics, finalMetrics, config, lossModule, reporter, logger):
         """
         Input
-        nn.Module model -- taken from lingtest.models
+        nn.Module model -- taken from src.models
         YAML config -- config
         """
         self.config = config
@@ -145,16 +145,19 @@ class Trainer(object):
         """
         return {key: metric(preds, targets) for key, metric in self.metrics.items()}
 
-    def computeFinalMetrics(self, preds, targets):
+    def computeFinalMetrics(self, metricsValues, dataLoader):
         """
-        Computes metrics based on the comparison of predictions and targets
+        Computes final metric values by averaging it
 
         Parameters
         ------------------------
-        torch.Tensor preds -- predictions (N,)
-        torch.Tensor targets -- targets (N,)
+        torch.Tensor metricValues -- dict[List]
+        torch.Tensor dataLoader -- torch.utils.data.DataLoader
         """
-        return {key: finalMetric(preds, targets) for key, finalMetric in self.finalMetrics.items()}
+        dataloader_len = len(dataLoader)
+        return {
+            key: sum(values) / dataloader_len for key, values in metricsValues.items()
+        }
 
     def calcGradNorm(self):
         """
@@ -230,42 +233,35 @@ class Trainer(object):
         self.model.eval()
         mode = "eval"
 
-        targets = {key: torch.tensor([], device=self.device) for key in self.model.criteriaTitles}
-        finalTargets = {key: torch.tensor([], device=self.device) for key in ["grade1", "grade2"]}
-        preds = {key: torch.tensor([], device=self.device) for key in self.model.criteriaTitles}
         outData = []
+        metrics = {metricName: [] for metricName in self.metrics.keys()}
+        dataset_len = len(dataLoader)
+
         with torch.no_grad():
             for batch in dataLoader:
                 batch = loadObj(batch, self.device)  # send the batch to device
                 batch = self.computeLoss(batch)  # compute loss and logs
                 pred = self.extractPrediction(batch)
                 targ = self.extractTarget(batch)
-                finalTarg = {"grade1": batch["grade1"]}
-                finalTarg.update({"grade2": batch["grade2"]})
-                batch = self.parseCriteria(batch)
-                for key in self.model.criteriaTitles:
-                    preds[key] = torch.concatenate([preds[key], torch.unsqueeze(pred[key], dim=0)], dim=0)
-                    targets[key] = torch.concatenate([targets[key], targ[key]], dim=0)
-                    batch[key + "Pred"] = torch.squeeze(batch[key + "Pred"])
 
-                finalTargets = {key: torch.concatenate([val, finalTarg[key]], dim=0) for key, val in
-                                finalTargets.items()}
-                if ("setAudio" in batch.keys()):
-                    del batch["setAudio"]
-                if ("topicAudio" in batch.keys()):
-                    del batch["topicAudio"]
+                # update running metrics
+                batch_metrics = self.computeMetrics(pred, targ)
+                for metricName in self.metrics:
+                    metrics[metricName].append(batch_metrics[metricName])
 
                 # making loss data 1d
                 batch["loss"] = torch.mean(batch["loss"])
 
                 outData.append(batch)
 
-            self.logger.info("PREDS " + str(preds))
-            metricsResult = self.computeMetrics(preds, targets)
-            finalMetricsResult = self.computeFinalMetrics(preds, finalTargets)
-            # logs, step, mode="train", outData=None, metricsResult=None
+            # self.logger.info("PREDS " + str(preds))
+            finalMetricsResult = self.computeFinalMetrics(metrics, dataLoader)
+
+            # TODO: change...
+            metricsResult = finalMetricsResult
+
             self.reporter.step = self.curEpoch
-            self.reporter.addAndReport(self.curEpoch, outData=outData, metricsResult=metricsResult,
+            self.reporter.addAndReport(curEpoch=self.curEpoch, outData=outData, metricsResult=metricsResult,
                                        finalMetricsResult=finalMetricsResult, mode=mode)  # report logs
 
         self.reporter.forceReport(mode)  # to free buffer, flush the remaining logs

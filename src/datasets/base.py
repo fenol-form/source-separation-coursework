@@ -14,7 +14,7 @@ from omegaconf import OmegaConf
 
 # For now BaseDataset is just a table of all audio files
 class BaseDataset(Dataset):
-    def __init__(self, mode="train", datasetDir=None, preprocessing=None,  index=None, logger=None):
+    def __init__(self, logger, mode="train", datasetDir=None, preprocessing=None,  index=None):
         self.datasetDir = datasetDir
         self.logger = logger  # logger to use
         self.index = index  # list of dicts with metadata for each audio
@@ -57,6 +57,19 @@ class BaseDataset(Dataset):
             for i in np.arange(len(self.preprocessingModules)):
                 audioTensor = self.preprocessingModules[i](audioTensor)
             return audioTensor
+
+    def preprocessItem(self, audioTensor):
+        if len(audioTensor.shape) == 2:
+            # it's stereo
+            return audioTensor
+        elif len(audioTensor.shape) == 1:
+            # it's mono
+            return audioTensor.unsqueeze(0)
+        else:
+            self.logger.error("ERROR: Something happened during dataset item processing\n"
+                              "item does not have correct shape")
+            raise ValueError
+
 #
 #
 # class VADProcessor:

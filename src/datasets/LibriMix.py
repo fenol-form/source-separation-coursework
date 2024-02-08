@@ -36,14 +36,17 @@ class LibriMixDataset(BaseDataset):
             with WorkingDirectoryChanger("../../../") as wd:
                 self.train_set = LibriMix(datasetDir, task)
 
-    def __getitem__(self, idx) -> Tuple[torch.Tensor]:
+    def __getitem__(self, idx) -> dict:
         """
         :param idx: int
         :return: element in form of (source mixture, target: Tuple[Tensor])
         """
         with WorkingDirectoryChanger("../../../") as wd:
             sample = self.train_set[idx]
-        return sample
+        return {
+            "mixture": self.preprocessItem(sample[0]),
+            "target": sample[1]
+        }
 
     def __len__(self):
         return len(self.train_set)
