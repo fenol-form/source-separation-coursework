@@ -196,6 +196,7 @@ class Trainer(object):
             logs.update({"progress": (step + 1 + (numSteps * self.curEpoch)) / numSteps})
             logs.update({"loss": batch["loss"].detach().cpu().numpy()})
             logs.update({"step": (step + 1 + (numSteps * self.curEpoch))})
+            logs.update({"curEpoch": self.curEpoch})
             logs.update({"gradNorm": self.calcGradNorm().cpu().numpy()})
             # report logs
             self.reporter.addAndReport(logs=logs, mode=mode)
@@ -255,14 +256,17 @@ class Trainer(object):
                 outData.append(batch)
 
             # self.logger.info("PREDS " + str(preds))
-            finalMetricsResult = self.computeFinalMetrics(metrics, dataLoader)
+            finalMetricResults = self.computeFinalMetrics(metrics, dataLoader)
 
             # TODO: change...
-            metricsResult = finalMetricsResult
+            metricResults = finalMetricResults
 
             self.reporter.step = self.curEpoch
-            self.reporter.addAndReport(curEpoch=self.curEpoch, outData=outData, metricsResult=metricsResult,
-                                       finalMetricsResult=finalMetricsResult, mode=mode)  # report logs
+
+            logs = {
+                "curEpoch": self.curEpoch
+            }
+            self.reporter.addAndReport(mode=mode, logs=logs, metricResults=metricResults)  # report logs
 
         self.reporter.forceReport(mode)  # to free buffer, flush the remaining logs
 

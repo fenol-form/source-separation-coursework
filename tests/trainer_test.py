@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader, Subset
 from src.datasets.LibriMix import LibriMixDataset
 from src.trainers.trainers import SeparationTrainer
 from src.reporters.base import Reporter
+from src.reporters.reporters import SeparationReporter
 from src.models.models import DullModel
 
 import hydra
@@ -24,13 +25,14 @@ def main(cfg: DictConfig):
     dataset = LibriMixDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
 
     dataloader = DataLoader(dataset, batch_size=4)
-    reporter = Reporter(cfg, logger)
+    reporter = SeparationReporter(cfg, logger)
     metrics = {
         el["name"]: hydra.utils.instantiate(el["instance"])
         for el in cfg["metrics"]
     }
 
     lossModule = hydra.utils.instantiate(cfg["loss"])
+    lossModule = lambda x, y: -lossModule(x, y)
 
     trainer = SeparationTrainer(
         model, metrics, metrics, cfg, lossModule, reporter, logger

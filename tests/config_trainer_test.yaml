@@ -50,9 +50,8 @@ trainer:
 logs:
   logDir: "./logs/"
   loggingPeriod: 1
-  wandbCredentials: null
-#  wandbCredentials:
-#    wandbProject: source-separation-test
-#    wandbEntity: evgn_p
-#    wandbKey: 874cc9b306ccc4dc16f9d7d4dabf546854ea5098
-#    runName: test
+  wandbCredentials:
+    wandbProject: source-separation-test
+    wandbEntity: evgn_p
+    wandbKey: 874cc9b306ccc4dc16f9d7d4dabf546854ea5098
+    runName: testTrainer
