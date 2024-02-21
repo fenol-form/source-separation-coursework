@@ -12,6 +12,8 @@ import hydra
 
 from omegaconf import DictConfig, OmegaConf
 
+from torch.profiler import profile, record_function, ProfilerActivity
+
 
 @hydra.main(version_base="1.1", config_path=".", config_name="config_trainer_test")
 def main(cfg: DictConfig):
@@ -24,7 +26,7 @@ def main(cfg: DictConfig):
 
     dataset = LibriMixDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
 
-    dataloader = DataLoader(dataset, batch_size=4)
+    dataloader = DataLoader(dataset, batch_size=1)
     reporter = SeparationReporter(cfg, logger)
     metrics = {
         el["name"]: hydra.utils.instantiate(el["instance"])
@@ -32,7 +34,6 @@ def main(cfg: DictConfig):
     }
 
     lossModule = hydra.utils.instantiate(cfg["loss"])
-    lossModule = lambda x, y: -lossModule(x, y)
 
     trainer = SeparationTrainer(
         model, metrics, metrics, cfg, lossModule, reporter, logger

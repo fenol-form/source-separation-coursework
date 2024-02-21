@@ -22,14 +22,14 @@ class WavDPRNN(BaseModel):
     Asteroid DPRNN wrapper
     """
 
-    def __init__(self, *args, from_pretrained=True, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, from_pretrained=False, **kwargs):
+        super().__init__(*args)
         if from_pretrained:
             self.__asteroid_model = asteroid.models.BaseModel.from_pretrained(
                 "mpariente/DPRNNTasNet-ks2_WHAM_sepclean"
             )
         else:
-            self.__asteroid_model = asteroid.models.DPRNNTasNet(*args, **kwargs)
+            self.__asteroid_model = asteroid.models.DPRNNTasNet(*args)
 
     def forward(self, x):
         return {"preds": self.__asteroid_model(x)}

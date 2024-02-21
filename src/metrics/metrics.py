@@ -57,3 +57,14 @@ class PESQMetric(BasePITMetric):
             eval_func="max",
             fs=fs, mode=mode
         )
+
+
+class NegSNR(SNRMetric):
+    def forward(self, preds, target):
+        return -super().forward(preds, target)
+
+
+class NegSDR(SDRMetric):
+    def forward(self, preds, target):
+        return -super().forward(preds, target)
+

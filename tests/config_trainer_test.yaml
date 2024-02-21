@@ -7,7 +7,7 @@ dataset:
   dir: "MiniLibriMix/metadata/train"
 
 model:
-  _target_: src.models.models.DullModel
+  _target_: src.models.base.WavDPRNN
   n_src: 2
 
 metrics:
@@ -31,7 +31,7 @@ optimizer:
   lr: 0.001
 
 loss:
-  _target_: src.metrics.metrics.SNRMetric
+  _target_: src.metrics.metrics.NegSNR
 
 lrScheduler:
   _target_: torch.optim.lr_scheduler.OneCycleLR
@@ -53,5 +53,5 @@ logs:
   wandbCredentials:
     wandbProject: source-separation-test
     wandbEntity: evgn_p
-    wandbKey: 874cc9b306ccc4dc16f9d7d4dabf546854ea5098
+    wandbKey: 72025e0fbc2430ad1c26cc015066ce408b840383
     runName: testTrainer
