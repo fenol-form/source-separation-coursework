@@ -1,5 +1,7 @@
 import torch
 from torch import nn
+from torch.nn.functional import fold
+
 from src.models.base import BaseModel
 from asteroid.masknn import norms
 
@@ -41,7 +43,13 @@ class SingleRNN(nn.Module):
     """
 
     def __init__(
-        self, rnn_type, input_size, hidden_size, n_layers=1, dropout=0, bidirectional=False
+        self,
+        rnn_type,
+        input_size,
+        hidden_size,
+        n_layers=1,
+        dropout=0,
+        bidirectional=False
     ):
         super(SingleRNN, self).__init__()
         assert rnn_type.upper() in ["RNN", "LSTM", "GRU"]
@@ -100,7 +108,7 @@ class ReccurentBlock(nn.Module):
             num_layers=1,
             dropout=0,
     ):
-        super(self).__init__()
+        super().__init__()
         if use_mulcat:
             # IntraRNN block and linear projection layer (always bi-directional)
             self.intra_RNN = MulCatRNN(
@@ -163,7 +171,7 @@ class ReccurentBlock(nn.Module):
         return output + x
 
 
-class DualPathRNN(nn.Module):
+class DualPathRNN(BaseModel):
     def __init__(
             self,
             in_chan,
@@ -179,7 +187,7 @@ class DualPathRNN(nn.Module):
             num_layers=1,
             dropout=0,
     ):
-        super().__init__()
+        super().__init__(n_src)
         self.in_chan = in_chan
         self.hid_size = hid_size
         self.chunk_size = chunk_size
@@ -195,7 +203,7 @@ class DualPathRNN(nn.Module):
 
         self.blocks = []
         for x in range(self.n_repeats):
-            self.blocks += ReccurentBlock(
+            self.blocks += [ReccurentBlock(
                 in_chan=in_chan,
                 hid_size=hid_size,
                 norm_type=norm_type,
@@ -204,7 +212,7 @@ class DualPathRNN(nn.Module):
                 use_mulcat=use_mulcat,
                 num_layers=num_layers,
                 dropout=dropout,
-            )
+            )]
         self.blocks = nn.Sequential(*self.blocks)
 
     def forward(self, x):
@@ -216,6 +224,166 @@ class DualPathRNN(nn.Module):
 
         assert len(x.shape) == 4
         return self.blocks(x)
+
+
+class WavEncoder(BaseModel):
+    def __init__(
+        self,
+        n_src,
+        in_chan,
+        bn_chan,
+        hop_size,
+        chunk_size,
+    ):
+        super().__init__(n_src)
+        self.in_chan = in_chan
+        self.bn_chan = bn_chan
+        self.hop_size = hop_size
+        self.chunk_size = chunk_size
+
+        self.encoder_conv = nn.Conv1d(in_chan, bn_chan, kernel_size=1)
+        self.chunker = nn.Unfold(
+            kernel_size=(chunk_size, 1),
+            padding=(chunk_size, 0),
+            stride=(hop_size, 1),
+        )
+
+    def forward(self, x):
+        """
+        :param x: Tensor of shape (batch_size, in_channels, time)
+        :return: Tensor of shape (batch_size, bn_channels, chunk_size, num_chunks)
+        """
+
+        batch, n_filters, n_frames = x.size()
+        output = self.encoder_conv(x)  # [batch, bn_chan, n_frames]
+        output = self.chunker(output.unsqueeze(-1))
+        n_chunks = output.shape[-1]
+        output = output.reshape(batch, self.bn_chan, self.chunk_size, n_chunks)
+        return output
+
+
+class WavDecoder(BaseModel):
+    def __init__(
+        self,
+        n_src,
+        bn_chan,
+        out_chan,
+        chunk_size,
+        hop_size,
+    ):
+        super().__init__(n_src)
+
+        self.bn_chan = bn_chan
+        self.out_chan = out_chan
+        self.hop_size = hop_size
+        self.chunk_size = chunk_size
+
+        self.first_out = nn.Sequential(
+            nn.PReLU(),
+            nn.Conv2d(bn_chan, n_src * bn_chan, 1)
+        )
+        self.net_out = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Tanh())
+        self.net_gate = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Sigmoid())
+        self.mask_net = nn.Conv1d(bn_chan, out_chan, 1, bias=False)
+        self.output_act = nn.ReLU()
+
+    def forward(self, x, n_frames):
+        """
+        :param x: output of Dual Path RNN of shape (batch, bn_chan, chunk_size, n_chunks)
+        :param n_frames: initial len of audio
+        :return: Tensor of shape (batch, n_src, out_chan, n_frames)
+        """
+        batch, _, chunk_size, n_chunks = x.size()
+        output = self.first_out(x)
+        output = output.reshape(batch * self.n_src, self.bn_chan, self.chunk_size, n_chunks)
+
+        # Overlap and add:
+        # [batch, out_chan, chunk_size, n_chunks] -> [batch, out_chan, n_frames]
+        to_unfold = self.bn_chan * self.chunk_size
+        output = fold(
+            output.reshape(batch * self.n_src, to_unfold, n_chunks),
+            (n_frames, 1),
+            kernel_size=(self.chunk_size, 1),
+            padding=(self.chunk_size, 0),
+            stride=(self.hop_size, 1),
+        )
+
+        # Apply gating
+        output = output.reshape(batch * self.n_src, self.bn_chan, -1)
+        output = self.net_out(output) * self.net_gate(output)
+        # Compute mask
+        score = self.mask_net(output)
+        est_mask = self.output_act(score)
+        est_mask = est_mask.view(batch, self.n_src, self.out_chan, n_frames)
+        return est_mask
+
+
+class DPRNN(BaseModel):
+    def __init__(
+        self,
+        n_src,
+        in_chan,
+        bn_chan=128,
+        out_chan=1,
+        hid_size=128,
+        chunk_size=100,
+        hop_size=None,
+        n_repeats=6,
+        norm_type="gLN",
+        mask_act="relu",
+        bidirectional=True,
+        rnn_type="LSTM",
+        use_mulcat=False,
+        num_layers=1,
+        dropout=0,
+    ):
+        super().__init__(n_src)
+        self.in_chan = in_chan
+        out_chan = out_chan if out_chan is not None else in_chan
+        self.out_chan = out_chan
+        self.bn_chan = bn_chan
+        self.hid_size = hid_size
+        self.chunk_size = chunk_size
+        hop_size = hop_size if hop_size is not None else chunk_size // 2
+        self.hop_size = hop_size
+        self.n_repeats = n_repeats
+        self.n_src = n_src
+        self.norm_type = norm_type
+        self.mask_act = mask_act
+        self.bidirectional = bidirectional
+        self.rnn_type = rnn_type
+        self.num_layers = num_layers
+        self.dropout = dropout
+        self.use_mulcat = use_mulcat
+
+        self.encoder = WavEncoder(
+            n_src, in_chan, bn_chan, hop_size, chunk_size
+        )
+
+        self.decoder = WavDecoder(
+            n_src, bn_chan, out_chan, chunk_size, hop_size
+        )
+
+        self.net = DualPathRNN(
+            bn_chan, n_src, hid_size, chunk_size,
+            n_repeats, norm_type, mask_act,
+            bidirectional, rnn_type, use_mulcat,
+            num_layers, dropout
+        )
+
+    def forward(self, x):
+        batch, in_chan, n_frames = x.size()
+        output = self.encoder(x)
+        output = self.net(output)
+        output = self.decoder(output, n_frames)
+
+        assert output.shape == (batch, self.n_src, self.out_chan, n_frames)
+        output = output.squeeze(2)
+        assert output.shape == (batch, self.n_src, n_frames)
+
+        return {
+            "preds": output
+        }
 
 
 class SpectrogrammEncoder(BaseModel):
