@@ -1,8 +1,4 @@
 import logging
-import signal
-import sys
-
-import torch
 from torch.utils.data import DataLoader, Subset
 
 from src.datasets.LibriMix import LibriMixDataset
@@ -25,11 +21,11 @@ def main(cfg: DictConfig):
 
     model = hydra.utils.instantiate(
         cfg["model"],
-        # cfg["model"]["n_src"],
+        # cfg["model"]["n_src"]
     )
 
     dataset = LibriMixDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
-    dataset = Subset(dataset, [1, 2, 3])
+    dataset = Subset(dataset, [1])
 
     dataloader = DataLoader(dataset, batch_size=1)
     reporter = SeparationReporter(cfg, logger)
@@ -43,16 +39,14 @@ def main(cfg: DictConfig):
     trainer = SeparationTrainer(
         model, metrics, metrics, cfg, lossModule, reporter, logger
     )
-    inferencer = Inferencer(
-        cfg, model, dataloader, reporter, metrics, logger
-    )
+    # inferencer = Inferencer(
+    #     cfg, model, dataloader, reporter, metrics, logger
+    # )
 
-    with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True) as prof:
-        with torch.no_grad():
-            inferencer.validationRun(updatePeriod=50)
-            # trainer.train(dataloader)
-            # trainer.run(dataloader, dataloader, cfg["trainer"]["epochs"])
-    print(prof.key_averages())
+    #with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True) as prof:
+        # inferencer.validationRun(updatePeriod=50)
+    trainer.run(dataloader, dataloader, cfg["trainer"]["epochs"])
+    #print(prof.key_averages())
 
 
 if __name__ == "__main__":

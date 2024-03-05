@@ -8,6 +8,9 @@ dataset:
 
 model:
   _target_: src.models.models.DPRNN
+#  _target_: src.models.base.WavDPRNN
+#  _target_: src.models.models.DullModel
+#  _target_: src.models.models.AsteroidDprnn
   n_src: 2
   in_chan: 1
 
@@ -44,7 +47,7 @@ lrScheduler:
   pct_start: 0.2
 
 trainer:
-  epochs: 3
+  epochs: 100
   chkptDir: /chkpts
   chkptsInQueue: 10
 

@@ -1,9 +1,27 @@
+import sys
+
+import asteroid.masknn.recurrent
 import torch
 from torch import nn
 from torch.nn.functional import fold
 
 from src.models.base import BaseModel
 from asteroid.masknn import norms
+
+from torch.profiler import profile, record_function, ProfilerActivity
+
+
+class AsteroidDprnn(asteroid.masknn.recurrent.DPRNN):
+    def __init__(self, *args, **kwargs):
+        kwargs["n_repeats"] = 4
+        super().__init__(*args, **kwargs)
+
+    def forward(self, mixture_w):
+        out = super().forward(mixture_w)
+        out = out.squeeze(2)
+        return {
+            "preds": out
+        }
 
 
 class DullModel(BaseModel):
@@ -328,7 +346,7 @@ class DPRNN(BaseModel):
         hid_size=128,
         chunk_size=100,
         hop_size=None,
-        n_repeats=6,
+        n_repeats=4,
         norm_type="gLN",
         mask_act="relu",
         bidirectional=True,
