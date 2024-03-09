@@ -9,6 +9,7 @@ from src.reporters.reporters import SeparationReporter
 from src.models.models import MaskerDPRNN
 
 import hydra
+import torch
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -17,6 +18,7 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 @hydra.main(version_base="1.1", config_path=".", config_name="config_test_dprnn")
 def main(cfg: DictConfig):
+    # torch.manual_seed(1)
     logger = logging.getLogger("dprnn_test")
 
     model = hydra.utils.instantiate(
@@ -25,9 +27,9 @@ def main(cfg: DictConfig):
     )
 
     dataset = LibriMixDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
-    dataset = Subset(dataset, [1])
+    dataset = Subset(dataset, [1, 2, 3])
 
-    dataloader = DataLoader(dataset, batch_size=1)
+    dataloader = DataLoader(dataset, batch_size=cfg["dataloader"]["batch_size"])
     reporter = SeparationReporter(cfg, logger)
     metrics = {
         el["name"]: hydra.utils.instantiate(el["instance"])

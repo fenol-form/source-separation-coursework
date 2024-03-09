@@ -62,14 +62,15 @@ class BaseMaskingNetwork(BaseModel):
         :param x: Tensor of shape (batch, in_chan, time frames)
         :return: Tensor of shape (batch, n_src, time frames)
         """
-        tf_repr = self.encoder(x)
+
+        tf_repr = self.encoder(x)    # (batch, n_filters, n_frames)
 
         if self.encoder_activation is not None:
             tf_repr = self.encoder_activation(tf_repr)
 
-        est_masks = self.masker(tf_repr)
-        masked_tf_repr = est_masks * tf_repr
-        decoded = self.decoder(masked_tf_repr)
+        est_masks = self.masker(tf_repr)    # (batch, n_src, out_chan = 1, n_frames)
+        masked_tf_repr = est_masks * tf_repr.unsqueeze(1)    # (batch, n_src, out_chan = 1, n_frames)
+        decoded = self.decoder(masked_tf_repr)    # (batch, n_src, time)
 
         assert decoded.shape[-1] == x.shape[-1]
 

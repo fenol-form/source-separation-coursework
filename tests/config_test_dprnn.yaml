@@ -6,6 +6,9 @@ dataset:
   _target_: src.datasets.LibriMix.LibriMixDataset
   dir: "MiniLibriMix/metadata/train"
 
+dataloader:
+  batch_size: 2
+
 model:
   _target_: src.models.models.DPRNN
 #  _target_: src.models.base.WavDPRNN

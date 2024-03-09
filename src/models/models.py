@@ -11,19 +11,6 @@ from asteroid.masknn import norms
 from torch.profiler import profile, record_function, ProfilerActivity
 
 
-class AsteroidDprnn(asteroid.masknn.recurrent.DPRNN):
-    def __init__(self, *args, **kwargs):
-        kwargs["n_repeats"] = 4
-        super().__init__(*args, **kwargs)
-
-    def forward(self, mixture_w):
-        out = super().forward(mixture_w)
-        out = out.squeeze(2)
-        return {
-            "preds": out
-        }
-
-
 class DullModel(BaseModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args)
@@ -201,7 +188,7 @@ class MaskerDPRNN(BaseModel):
         hop_size=None,
         n_repeats=4,
         norm_type="gLN",
-        mask_act="relu",
+        mask_act="sigmoid",
         bidirectional=True,
         rnn_type="LSTM",
         use_mulcat=False,
@@ -255,7 +242,12 @@ class MaskerDPRNN(BaseModel):
         self.net_out = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Tanh())
         self.net_gate = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Sigmoid())
         self.mask_net = nn.Conv1d(bn_chan, out_chan, 1, bias=False)
-        self.output_act = nn.ReLU()
+
+        # TODO: adapt for other arg's values
+        if mask_act == "sigmoid":
+            self.output_act = nn.Sigmoid()
+        else:
+            raise ValueError
 
     def forward(self, x):
         # bottleneck conv and chunking
@@ -391,7 +383,7 @@ class DPRNN(BaseMaskingNetwork):
             # RNN params:
             n_repeats=6,
             norm_type="gLN",
-            mask_act="relu",
+            mask_act="sigmoid",
             bidirectional=True,
             rnn_type="LSTM",
             use_mulcat=False,
