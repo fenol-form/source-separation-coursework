@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torch.nn.functional import fold
 
-from src.models.base import BaseModel
+from src.models.base import BaseModel, BaseMaskingNetwork
 from asteroid.masknn import norms
 
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -189,154 +189,7 @@ class ReccurentBlock(nn.Module):
         return output + x
 
 
-class DualPathRNN(BaseModel):
-    def __init__(
-            self,
-            in_chan,
-            n_src,
-            hid_size=128,
-            chunk_size=100,
-            n_repeats=6,
-            norm_type="gLN",
-            mask_act="relu",
-            bidirectional=True,
-            rnn_type="LSTM",
-            use_mulcat=False,
-            num_layers=1,
-            dropout=0,
-    ):
-        super().__init__(n_src)
-        self.in_chan = in_chan
-        self.hid_size = hid_size
-        self.chunk_size = chunk_size
-        self.n_repeats = n_repeats
-        self.n_src = n_src
-        self.norm_type = norm_type
-        self.mask_act = mask_act
-        self.bidirectional = bidirectional
-        self.rnn_type = rnn_type
-        self.num_layers = num_layers
-        self.dropout = dropout
-        self.use_mulcat = use_mulcat
-
-        self.blocks = []
-        for x in range(self.n_repeats):
-            self.blocks += [ReccurentBlock(
-                in_chan=in_chan,
-                hid_size=hid_size,
-                norm_type=norm_type,
-                bidirectional=bidirectional,
-                rnn_type=rnn_type,
-                use_mulcat=use_mulcat,
-                num_layers=num_layers,
-                dropout=dropout,
-            )]
-        self.blocks = nn.Sequential(*self.blocks)
-
-    def forward(self, x):
-        """
-        x: Tensor of shape (batch_size, n_feat, chunk_size, n_chunks)
-        return: Tensor of shape (batch_size, n_feat, chunk_size, n_chunks)
-                after n_repeats Reccurent Blocks
-        """
-
-        assert len(x.shape) == 4
-        return self.blocks(x)
-
-
-class WavEncoder(BaseModel):
-    def __init__(
-        self,
-        n_src,
-        in_chan,
-        bn_chan,
-        hop_size,
-        chunk_size,
-    ):
-        super().__init__(n_src)
-        self.in_chan = in_chan
-        self.bn_chan = bn_chan
-        self.hop_size = hop_size
-        self.chunk_size = chunk_size
-
-        self.encoder_conv = nn.Conv1d(in_chan, bn_chan, kernel_size=1)
-        self.chunker = nn.Unfold(
-            kernel_size=(chunk_size, 1),
-            padding=(chunk_size, 0),
-            stride=(hop_size, 1),
-        )
-
-    def forward(self, x):
-        """
-        :param x: Tensor of shape (batch_size, in_channels, time)
-        :return: Tensor of shape (batch_size, bn_channels, chunk_size, num_chunks)
-        """
-
-        batch, n_filters, n_frames = x.size()
-        output = self.encoder_conv(x)  # [batch, bn_chan, n_frames]
-        output = self.chunker(output.unsqueeze(-1))
-        n_chunks = output.shape[-1]
-        output = output.reshape(batch, self.bn_chan, self.chunk_size, n_chunks)
-        return output
-
-
-class WavDecoder(BaseModel):
-    def __init__(
-        self,
-        n_src,
-        bn_chan,
-        out_chan,
-        chunk_size,
-        hop_size,
-    ):
-        super().__init__(n_src)
-
-        self.bn_chan = bn_chan
-        self.out_chan = out_chan
-        self.hop_size = hop_size
-        self.chunk_size = chunk_size
-
-        self.first_out = nn.Sequential(
-            nn.PReLU(),
-            nn.Conv2d(bn_chan, n_src * bn_chan, 1)
-        )
-        self.net_out = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Tanh())
-        self.net_gate = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Sigmoid())
-        self.mask_net = nn.Conv1d(bn_chan, out_chan, 1, bias=False)
-        self.output_act = nn.ReLU()
-
-    def forward(self, x, n_frames):
-        """
-        :param x: output of Dual Path RNN of shape (batch, bn_chan, chunk_size, n_chunks)
-        :param n_frames: initial len of audio
-        :return: Tensor of shape (batch, n_src, out_chan, n_frames)
-        """
-        batch, _, chunk_size, n_chunks = x.size()
-        output = self.first_out(x)
-        output = output.reshape(batch * self.n_src, self.bn_chan, self.chunk_size, n_chunks)
-
-        # Overlap and add:
-        # [batch, out_chan, chunk_size, n_chunks] -> [batch, out_chan, n_frames]
-        to_unfold = self.bn_chan * self.chunk_size
-        output = fold(
-            output.reshape(batch * self.n_src, to_unfold, n_chunks),
-            (n_frames, 1),
-            kernel_size=(self.chunk_size, 1),
-            padding=(self.chunk_size, 0),
-            stride=(self.hop_size, 1),
-        )
-
-        # Apply gating
-        output = output.reshape(batch * self.n_src, self.bn_chan, -1)
-        output = self.net_out(output) * self.net_gate(output)
-        # Compute mask
-        score = self.mask_net(output)
-        est_mask = self.output_act(score)
-        est_mask = est_mask.view(batch, self.n_src, self.out_chan, n_frames)
-        return est_mask
-
-
-class DPRNN(BaseModel):
+class MaskerDPRNN(BaseModel):
     def __init__(
         self,
         n_src,
@@ -374,33 +227,210 @@ class DPRNN(BaseModel):
         self.dropout = dropout
         self.use_mulcat = use_mulcat
 
-        self.encoder = WavEncoder(
-            n_src, in_chan, bn_chan, hop_size, chunk_size
+        self.bottleneck_conv = nn.Conv1d(in_chan, bn_chan, kernel_size=1)
+        self.chunker = nn.Unfold(
+            kernel_size=(chunk_size, 1),
+            padding=(chunk_size, 0),
+            stride=(hop_size, 1),
         )
 
-        self.decoder = WavDecoder(
-            n_src, bn_chan, out_chan, chunk_size, hop_size
+        self.net = []
+        for x in range(self.n_repeats):
+            self.net += [ReccurentBlock(
+                in_chan=bn_chan,
+                hid_size=hid_size,
+                norm_type=norm_type,
+                bidirectional=bidirectional,
+                rnn_type=rnn_type,
+                use_mulcat=use_mulcat,
+                num_layers=num_layers,
+                dropout=dropout,
+            )]
+        self.net = nn.Sequential(*self.net)
+
+        self.first_out = nn.Sequential(
+            nn.PReLU(),
+            nn.Conv2d(bn_chan, n_src * bn_chan, 1)
+        )
+        self.net_out = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Tanh())
+        self.net_gate = nn.Sequential(nn.Conv1d(bn_chan, bn_chan, 1), nn.Sigmoid())
+        self.mask_net = nn.Conv1d(bn_chan, out_chan, 1, bias=False)
+        self.output_act = nn.ReLU()
+
+    def forward(self, x):
+        # bottleneck conv and chunking
+        batch, in_chan, n_frames = x.size()
+        x = self.bottleneck_conv(x)  # [batch, bn_chan, n_frames]
+        x = self.chunker(x.unsqueeze(-1))
+        n_chunks = x.shape[-1]
+        x = x.reshape(batch, self.bn_chan, self.chunk_size, n_chunks)
+
+        # Dual Path RNN
+        assert len(x.shape) == 4
+        x = self.net(x)
+
+        # Masking
+        x = self.first_out(x)
+        x = x.reshape(batch * self.n_src, self.bn_chan, self.chunk_size, n_chunks)
+
+        # Reverse chunking
+        # [batch, out_chan, chunk_size, n_chunks] -> [batch, out_chan, n_frames]
+        to_unfold = self.bn_chan * self.chunk_size
+        x = fold(
+            x.reshape(batch * self.n_src, to_unfold, n_chunks),
+            (n_frames, 1),
+            kernel_size=(self.chunk_size, 1),
+            padding=(self.chunk_size, 0),
+            stride=(self.hop_size, 1),
         )
 
-        self.net = DualPathRNN(
-            bn_chan, n_src, hid_size, chunk_size,
-            n_repeats, norm_type, mask_act,
-            bidirectional, rnn_type, use_mulcat,
-            num_layers, dropout
+        # Apply gating
+        x = x.reshape(batch * self.n_src, self.bn_chan, -1)
+        x = self.net_out(x) * self.net_gate(x)
+
+        # Compute mask
+        score = self.mask_net(x)
+        est_mask = self.output_act(score)
+        est_mask = est_mask.view(batch, self.n_src, self.out_chan, n_frames)
+
+        assert est_mask.shape == (batch, self.n_src, self.out_chan, n_frames)
+
+        return est_mask
+
+
+class WavEncoder(nn.Module):
+    def __init__(
+        self,
+        in_chan: int,
+        n_filters: int = 64,    # default values were taken from https://github.com/asteroid-team/asteroid/blob/master/asteroid/models/dprnn_tasnet.py#L69
+        kernel_size: int = 16,
+        stride: int = 8,
+        padding: int = 0,
+    ):
+        super().__init__()
+        self.conv = nn.Conv1d(
+            in_chan,
+            n_filters,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=False,
+        )
+        for p in self.parameters():
+            nn.init.xavier_normal_(p)
+
+    def forward(self, x: torch.Tensor):
+        """
+        :param x: Tensor of shape (batch, 1, time)
+        :return:  Tensor of shape (batch, n_filters, n_frames)
+                  n_frames might not be equal to time
+        """
+        return self.conv(x)
+
+
+class WavDecoder(nn.Module):
+    def __init__(
+        self,
+        n_filters: int = 64,
+        out_chan: int = 1,
+        kernel_size: int = 16,
+        stride: int = 8,
+        padding: int = 0,
+        output_padding: int = 0,
+    ):
+        super().__init__()
+        self.transpose_conv = nn.ConvTranspose1d(
+            in_channels=n_filters,
+            out_channels=out_chan,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            output_padding=output_padding,
+            bias=False,
+        )
+        for p in self.parameters():
+            nn.init.xavier_normal_(p)
+
+    def forward(self, x: torch.Tensor):
+        """
+        :param x: masked time-fequency representation of model's output
+            of shape (batch, n_src, n_filters, n_frames)
+            or (n_src, n_filters, n_frames)
+        :return: decoded signals of shape (batch, n_src, time)
+        """
+        if x.ndim == 3:
+            return self.transpose_conv(x)
+        elif x.ndim == 4:
+            view_as = (-1,) + x.shape[-2:]
+            out = self.transpose_conv(x.reshape(view_as))
+            view_as = x.shape[:-2] + (-1,)
+            return out.view(view_as)
+
+
+class DPRNN(BaseMaskingNetwork):
+    def __init__(
+            self,
+            n_src,
+            in_chan,
+
+            # encoder, decoder params:
+            n_filters=64,
+            kernel_size=16,
+            stride=8,
+            encoder_type=WavEncoder,
+            decoder_type=WavDecoder,
+
+            bn_chan=128,
+            out_chan=1,
+
+            # chunker params:
+            hid_size=128,
+            chunk_size=100,
+            hop_size=None,
+
+            # RNN params:
+            n_repeats=6,
+            norm_type="gLN",
+            mask_act="relu",
+            bidirectional=True,
+            rnn_type="LSTM",
+            use_mulcat=False,
+            num_layers=1,
+            dropout=0,
+    ):
+        super(BaseMaskingNetwork, self).__init__(n_src)
+
+        self.encoder = encoder_type(
+            in_chan=in_chan,
+            n_filters=n_filters,
+            kernel_size=kernel_size,
+            stride=stride,
+        )
+        self.decoder = decoder_type(
+            n_filters=n_filters,
+            out_chan=out_chan,
+            kernel_size=kernel_size,
+            stride=stride,
+        )
+
+        self.masker = MaskerDPRNN(
+            n_src, n_filters, bn_chan,
+            out_chan, hid_size, chunk_size, hop_size,
+            n_repeats, norm_type, mask_act, bidirectional,
+            rnn_type, use_mulcat, num_layers, dropout
+        )
+
+        super().__init__(
+            n_src=n_src,
+            encoder=self.encoder,
+            decoder=self.decoder,
+            masker=self.masker,
         )
 
     def forward(self, x):
-        batch, in_chan, n_frames = x.size()
-        output = self.encoder(x)
-        output = self.net(output)
-        output = self.decoder(output, n_frames)
-
-        assert output.shape == (batch, self.n_src, self.out_chan, n_frames)
-        output = output.squeeze(2)
-        assert output.shape == (batch, self.n_src, n_frames)
-
+        out = super().forward(x)
         return {
-            "preds": output
+            "preds": out
         }
 
 
@@ -456,4 +486,3 @@ class SpectrogrammDecoder(BaseModel):
 
     def forward(self, x):
         raise NotImplemented
-

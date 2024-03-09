@@ -6,7 +6,7 @@ from src.inferencers.base import Inferencer
 from src.trainers.trainers import SeparationTrainer
 from src.reporters.base import Reporter
 from src.reporters.reporters import SeparationReporter
-from src.models.models import DPRNN
+from src.models.models import MaskerDPRNN
 
 import hydra
 
