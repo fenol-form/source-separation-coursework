@@ -22,17 +22,56 @@ class WavDPRNN(BaseModel):
     Asteroid DPRNN wrapper
     """
 
-    def __init__(self, *args, from_pretrained=True, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, from_pretrained=False, **kwargs):
+        super().__init__(*args)
         if from_pretrained:
             self.__asteroid_model = asteroid.models.BaseModel.from_pretrained(
                 "mpariente/DPRNNTasNet-ks2_WHAM_sepclean"
             )
         else:
-            self.__asteroid_model = asteroid.models.DPRNNTasNet(*args, **kwargs)
+            self.__asteroid_model = asteroid.models.DPRNNTasNet(*args)
 
     def forward(self, x):
         return {"preds": self.__asteroid_model(x)}
 
     def separate(self, mixture: torch.Tensor) -> Tuple[torch.Tensor]:
         return self.__asteroid_model.separate(mixture)
+
+
+class BaseMaskingNetwork(BaseModel):
+    """
+    Similar to https://github.com/asteroid-team/asteroid/blob/master/asteroid/models/base_models.py#L184
+    """
+
+    def __init__(
+        self,
+        n_src: int,
+        encoder: nn.Module,
+        decoder: nn.Module,
+        masker: nn.Module,
+        encoder_activation: nn.Module = None,
+    ):
+        super().__init__(n_src)
+        self.encoder = encoder
+        self.masker = masker
+        self.decoder = decoder
+        self.encoder_activation = encoder_activation
+
+    def forward(self, x):
+        """
+        :param x: Tensor of shape (batch, in_chan, time frames)
+        :return: Tensor of shape (batch, n_src, time frames)
+        """
+
+        tf_repr = self.encoder(x)    # (batch, n_filters, n_frames)
+
+        if self.encoder_activation is not None:
+            tf_repr = self.encoder_activation(tf_repr)
+
+        est_masks = self.masker(tf_repr)    # (batch, n_src, out_chan = 1, n_frames)
+        masked_tf_repr = est_masks * tf_repr.unsqueeze(1)    # (batch, n_src, out_chan = 1, n_frames)
+        decoded = self.decoder(masked_tf_repr)    # (batch, n_src, time)
+
+        assert decoded.shape[-1] == x.shape[-1]
+
+        return decoded

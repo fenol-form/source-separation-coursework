@@ -111,10 +111,6 @@ class Inferencer(object):
 
         self.model.eval()
 
-        # turn off gradient's calculation
-        for param in self.model.parameters():
-            param.requires_grad = False
-
     def oneRun(self, datasetEl):
         """
         Just runs the models and returns the result of the evaluation in the setting of validationRun
@@ -125,9 +121,10 @@ class Inferencer(object):
         or
         float[] audio
         """
-        if not (self.device == "cpu"):
-            datasetEl = loadObj(datasetEl, self.device)
-        return self.model(datasetEl)
+        with torch.no_grad():
+            if not (self.device == "cpu"):
+                datasetEl = loadObj(datasetEl, self.device)
+            return self.model(datasetEl)
 
     def extractBatch(self, dataEl):
         if "target" in dataEl:
@@ -194,29 +191,30 @@ class Inferencer(object):
         outData = []
         preds = []
         targets = []
-        for el in self.dataloader:
-            try:
-                time0Inference = time.time()  # inference time measurement
-                el, target = self.extractBatch(el)
-                out = self.oneRun(el)
-                t0 = time.time() - time0Inference
-                preds.append(self.extractPrediction(out))
-                targets.append(target)
+        with torch.no_grad():
+            for el in self.dataloader:
+                try:
+                    time0Inference = time.time()  # inference time measurement
+                    el, target = self.extractBatch(el)
+                    out = self.oneRun(el)
+                    t0 = time.time() - time0Inference
+                    preds.append(self.extractPrediction(out))
+                    targets.append(target)
 
-                out.update({"inferenceTime": t0})
+                    out.update({"inferenceTime": t0})
 
-                del out["preds"]
-                outData.append(out)
-            except ValueError as e:
-                self.logger.info(str(e))
-                self.logger.info(f"Error on element: {el}")
+                    del out["preds"]
+                    outData.append(out)
+                except ValueError as e:
+                    self.logger.info(str(e))
+                    self.logger.info(f"Error on element: {el}")
 
-            if curIter % updatePeriod == 0:
-                durationOverall = time.time() - time0Overall
-                self.logger.info(
-                    f"Files Processed | {curIter + 1} out of {len(self.dataloader)}; {((curIter + 1) / len(self.dataloader)) * 100:.2f}% in time {durationOverall}")
-                time0Overall = time.time()
-            curIter += 1
+                if curIter % updatePeriod == 0:
+                    durationOverall = time.time() - time0Overall
+                    self.logger.info(
+                        f"Files Processed | {curIter + 1} out of {len(self.dataloader)}; {((curIter + 1) / len(self.dataloader)) * 100:.2f}% in time {durationOverall}")
+                    time0Overall = time.time()
+                curIter += 1
 
         preds = self.processPreds(preds)
         targets = self.processTargets(targets)

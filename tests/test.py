@@ -17,12 +17,14 @@ def main(cfg: DictConfig):
 
     model = hydra.utils.instantiate(
         cfg["model"],
-        cfg["model"]["n_src"],
         from_pretrained=cfg["model"]["from_pretrained"]
     )
 
+    pytorch_total_params = sum(p.numel() for p in model.parameters())
+    print(pytorch_total_params)
+
     dataset = LibriMixDataset(datasetDir=cfg["dataset"]["dir"], mode="val", logger=logger)
-    dataloader = DataLoader(dataset, batch_size=2)
+    dataloader = DataLoader(dataset, batch_size=1)
     reporter = Reporter(cfg, logger)
     metrics = {
         el["name"]: hydra.utils.instantiate(el["instance"])

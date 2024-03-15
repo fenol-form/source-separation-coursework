@@ -20,6 +20,7 @@ class BasePITMetric(nn.Module):
 
     def forward(self, preds, target):
         assert preds.shape == target.shape
+        assert not torch.all(preds == 0), "Warning: all predictions are zeros"
         if len(preds.shape) <= 1:
             preds = preds.unsqueeze(0).unsqueeze(0)
         if len(target.shape) <= 1:
@@ -57,3 +58,15 @@ class PESQMetric(BasePITMetric):
             eval_func="max",
             fs=fs, mode=mode
         )
+
+
+class NegSNR(SNRMetric):
+    def forward(self, preds, target):
+        return -super().forward(preds, target)
+
+
+class NegSDR(SDRMetric):
+    def forward(self, preds, target):
+        return -super().forward(preds, target)
+
+

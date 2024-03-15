@@ -7,7 +7,7 @@ dataset:
   dir: "MiniLibriMix/metadata"
 
 model:
-  _target_: src.models.models.DullModel
+  _target_: src.models.base.WavDPRNN
   from_pretrained: True
   n_src: 2
 

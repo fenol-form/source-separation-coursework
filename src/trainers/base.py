@@ -10,6 +10,7 @@ import hydra
 
 from src.reporters.base import Reporter
 from src.utils.utils import loadObj
+from torch.profiler import profile, record_function, ProfilerActivity
 
 
 class TrainerError(Exception):
@@ -183,10 +184,12 @@ class Trainer(object):
 
             # do gradient stuff
             self.optimizer.zero_grad()
+
             batch = self.computeLoss(batch)
             loss = batch["loss"]
             self.logger.info("LOSS " + str(loss))
             loss.backward()
+
             # update optimizer and scheduler (if any)
             self.optimizer.step()
             if self.lrScheduler is not None:

@@ -6,9 +6,16 @@ dataset:
   _target_: src.datasets.LibriMix.LibriMixDataset
   dir: "MiniLibriMix/metadata/train"
 
+dataloader:
+  batch_size: 2
+
 model:
-  _target_: src.models.base.WavDPRNN
+  _target_: src.models.models.DPRNN
+#  _target_: src.models.base.WavDPRNN
+#  _target_: src.models.models.DullModel
+#  _target_: src.models.models.AsteroidDprnn
   n_src: 2
+  in_chan: 1
 
 metrics:
   - name: "snr"
@@ -43,9 +50,18 @@ lrScheduler:
   pct_start: 0.2
 
 trainer:
-  epochs: 3
+  epochs: 100
   chkptDir: /chkpts
   chkptsInQueue: 10
+
+inferencer:
+  _target_: src.inferencers.base
+
+inference:
+  outPath: ./inferenceResult.csv
+  outMetricsPath: ./inferenceResultMetrics.csv
+  preprocessing:
+    sr: 16000
 
 logs:
   logDir: "./logs/"
@@ -55,3 +71,4 @@ logs:
     wandbEntity: evgn_p
     wandbKey: 72025e0fbc2430ad1c26cc015066ce408b840383
     runName: testTrainer
+
