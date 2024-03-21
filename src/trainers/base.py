@@ -59,7 +59,7 @@ class Trainer(object):
         self.lossModule = loadObj(lossModule, self.device)
 
         # model
-        self.model = model.to(self.device)  # send the model to devic
+        self.model = model.to(self.device)  # send the model to device
 
         # training init stuff
         self.trainableParams = filter(lambda p: p.requires_grad, self.model.parameters())
@@ -239,7 +239,7 @@ class Trainer(object):
 
         outData = []
         metrics = {metricName: [] for metricName in self.metrics.keys()}
-        dataset_len = len(dataLoader)
+        audios_to_report = None
 
         with torch.no_grad():
             for batch in dataLoader:
@@ -258,6 +258,9 @@ class Trainer(object):
 
                 outData.append(batch)
 
+                # save separated audios
+                audios_to_report = pred[0]
+
             # self.logger.info("PREDS " + str(preds))
             finalMetricResults = self.computeFinalMetrics(metrics, dataLoader)
 
@@ -267,7 +270,8 @@ class Trainer(object):
             self.reporter.step = self.curEpoch
 
             logs = {
-                "curEpoch": self.curEpoch
+                "curEpoch": self.curEpoch,
+                "audios": audios_to_report,
             }
             self.reporter.addAndReport(mode=mode, logs=logs, metricResults=metricResults)  # report logs
 

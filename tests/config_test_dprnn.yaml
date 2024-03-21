@@ -3,11 +3,13 @@ hydra:
     chdir: True
 
 dataset:
-  _target_: src.datasets.LibriMix.LibriMixDataset
+#  _target_: src.datasets.LibriMix.LibriMixDataset
+  _target_: src.datasets.LibriMix.DullDataset
   dir: "MiniLibriMix/metadata/train"
+#  dir: null
 
 dataloader:
-  batch_size: 2
+  batch_size: 4
 
 model:
   _target_: src.models.models.DPRNN
@@ -32,22 +34,19 @@ checkpointPath: null
 nCheckpoints: 10 #number of checkpoints in the checkpoint queue
 newCheckpointsPath: ./chkpts
 
-
 optimizer:
   _target_: torch.optim.Adam
   lr: 0.001
 
+lrScheduler:
+  _target_: torch.optim.lr_scheduler.StepLR
+  step_size: 2
+  gamma: 0.98
+  verbose: False
+
 loss:
   _target_: src.metrics.metrics.NegSNR
-
-lrScheduler:
-  _target_: torch.optim.lr_scheduler.OneCycleLR
-  steps_per_epoch: 100
-  total_steps: 15000
-  epochs: 50
-  anneal_strategy: cos
-  max_lr: 0.01
-  pct_start: 0.2
+  func_type: "si-snr"
 
 trainer:
   epochs: 100
@@ -71,4 +70,3 @@ logs:
     wandbEntity: evgn_p
     wandbKey: 72025e0fbc2430ad1c26cc015066ce408b840383
     runName: testTrainer
-

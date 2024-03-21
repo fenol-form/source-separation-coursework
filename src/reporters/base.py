@@ -87,6 +87,9 @@ class Reporter:
         }
 
     def wandbFormatAudios(self, audios, sampleRate):
+        audios = {
+            f"{i}-th speaker": audios[i] for i in range(audios.size(0))
+        }
         return {
             audioName: wandb.Audio(audio, sample_rate=sampleRate) for audioName, audio in
             audios.items()

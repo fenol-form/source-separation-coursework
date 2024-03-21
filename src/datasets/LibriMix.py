@@ -3,6 +3,8 @@ from typing import Tuple
 import torch
 import os
 
+from torch.utils.data import TensorDataset
+
 from src.datasets.base import BaseDataset
 from asteroid.data import LibriMix
 
@@ -50,3 +52,24 @@ class LibriMixDataset(BaseDataset):
 
     def __len__(self):
         return len(self.train_set)
+
+
+class DullDataset(LibriMixDataset):
+
+    def __init__(self, *args, length=4, **kwargs):
+        super(DullDataset, self).__init__(*args, **kwargs)
+        self.length = length
+        elements = [super(DullDataset, self).__getitem__(i) for i in range(length)]
+        self.dataset = TensorDataset(
+            torch.cat([el["mixture"].unsqueeze(0) for el in elements]),
+            torch.cat([el["target"].unsqueeze(0) for el in elements])
+        )
+
+    def __getitem__(self, item):
+        return {
+            "mixture": self.dataset[item][0],
+            "target": self.dataset[item][1]
+        }
+
+    def __len__(self):
+        return self.length

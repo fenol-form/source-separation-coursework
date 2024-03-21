@@ -1,7 +1,7 @@
 import logging
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader, Subset, TensorDataset
 
-from src.datasets.LibriMix import LibriMixDataset
+from src.datasets.LibriMix import LibriMixDataset, DullDataset
 from src.inferencers.base import Inferencer
 from src.trainers.trainers import SeparationTrainer
 from src.reporters.base import Reporter
@@ -18,37 +18,29 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 @hydra.main(version_base="1.1", config_path=".", config_name="config_test_dprnn")
 def main(cfg: DictConfig):
-    # torch.manual_seed(1)
     logger = logging.getLogger("dprnn_test")
 
     model = hydra.utils.instantiate(
         cfg["model"],
-        # cfg["model"]["n_src"]
     )
 
-    dataset = LibriMixDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
-    dataset = Subset(dataset, [1, 2, 3])
+    # dataset = LibriMixDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
+    dataset = DullDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
 
-    dataloader = DataLoader(dataset, batch_size=cfg["dataloader"]["batch_size"])
-    reporter = SeparationReporter(cfg, logger)
+    dataloader = DataLoader(dataset, batch_size=cfg["dataloader"]["batch_size"], shuffle=False)
+    reporter = SeparationReporter(cfg, logger, sample_rate=8000)
     metrics = {
         el["name"]: hydra.utils.instantiate(el["instance"])
         for el in cfg["metrics"]
     }
 
-    lossModule = hydra.utils.instantiate(cfg["loss"])
+    lossModule = hydra.utils.instantiate(cfg["loss"], func_type=cfg["loss"]["func_type"])
 
     trainer = SeparationTrainer(
         model, metrics, metrics, cfg, lossModule, reporter, logger
     )
-    # inferencer = Inferencer(
-    #     cfg, model, dataloader, reporter, metrics, logger
-    # )
 
-    #with profile(activities=[ProfilerActivity.CPU], record_shapes=True, profile_memory=True) as prof:
-        # inferencer.validationRun(updatePeriod=50)
     trainer.run(dataloader, dataloader, cfg["trainer"]["epochs"])
-    #print(prof.key_averages())
 
 
 if __name__ == "__main__":
