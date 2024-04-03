@@ -21,7 +21,7 @@ class Reporter:
         self.logger = logger
         self.loggingPeriod = config["logs"]["loggingPeriod"]
         try:
-            self.wandbCredentials = config["logs"]["wandbCredentials"]
+            self.wandbCredentials = config["wandbCredentials"]
         except:
             self.wandbCredentials = None
             self.logger.info("WARNING: Reporter could not read wandbCredentials, wandb logs are turned off")

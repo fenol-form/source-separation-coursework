@@ -17,7 +17,7 @@ class BaseModel(nn.Module):
         raise NotImplemented
 
 
-class WavDPRNN(BaseModel):
+class AsteroidDPRNN(BaseModel):
     """
     Asteroid DPRNN wrapper
     """

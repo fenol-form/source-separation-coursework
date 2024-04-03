@@ -13,9 +13,8 @@ dataloader:
 
 model:
   _target_: src.models.models.DPRNN
-#  _target_: src.models.base.WavDPRNN
+#  _target_: src.models.base.AsteroidDPRNN
 #  _target_: src.models.models.DullModel
-#  _target_: src.models.models.AsteroidDprnn
   n_src: 2
   in_chan: 1
 
@@ -65,8 +64,9 @@ inference:
 logs:
   logDir: "./logs/"
   loggingPeriod: 1
-  wandbCredentials:
-    wandbProject: source-separation-test
-    wandbEntity: evgn_p
-    wandbKey: 72025e0fbc2430ad1c26cc015066ce408b840383
-    runName: testTrainer
+
+wandbCredentials:
+  wandbProject: source-separation-test
+  wandbEntity: evgn_p
+  wandbKey: 72025e0fbc2430ad1c26cc015066ce408b840383
+  runName: DPRNN_debug
