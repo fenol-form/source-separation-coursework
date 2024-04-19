@@ -4,6 +4,7 @@ import asteroid.models
 from torch.utils.data import DataLoader, Subset, TensorDataset
 
 from src.datasets.LibriMix import LibriMixDataset, DullDataset
+from src.datasets.OneSampleSet import OneSampleSet
 from src.inferencers.base import Inferencer
 from src.trainers.trainers import SeparationTrainer
 from src.reporters.base import Reporter
@@ -36,9 +37,9 @@ def main(cfg: DictConfig):
     else:
         cfg["wandbCredentials"]["runName"] += "__some_model"
 
-    # dataset = LibriMixDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
-    # use small dataset
-    dataset = DullDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
+    # use one sample dataset for debugging
+    # dataset = DullDataset(datasetDir=cfg["dataset"]["dir"], mode="train", logger=logger)
+    dataset = OneSampleSet(mode="train", logger=logger)
 
     dataloader = DataLoader(dataset, batch_size=cfg["dataloader"]["batch_size"], shuffle=False)
     reporter = SeparationReporter(cfg, logger, sample_rate=8000)

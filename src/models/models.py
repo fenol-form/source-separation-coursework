@@ -3,10 +3,12 @@ import sys
 import asteroid.masknn.recurrent
 import torch
 from torch import nn
-from torch.nn.functional import fold
+from torch.nn.functional import fold, unfold
 
 from src.models.base import BaseModel, BaseMaskingNetwork
 from asteroid.masknn import norms
+
+import asteroid.masknn.recurrent
 
 from torch.profiler import profile, record_function, ProfilerActivity
 
@@ -214,12 +216,9 @@ class MaskerDPRNN(BaseModel):
         self.dropout = dropout
         self.use_mulcat = use_mulcat
 
-        self.bottleneck_conv = nn.Conv1d(in_chan, bn_chan, kernel_size=1)
-        self.chunker = nn.Unfold(
-            kernel_size=(chunk_size, 1),
-            padding=(chunk_size, 0),
-            stride=(hop_size, 1),
-        )
+        layer_norm = norms.get(norm_type)(in_chan)
+        bottleneck_conv = nn.Conv1d(in_chan, bn_chan, 1)
+        self.bottleneck = nn.Sequential(layer_norm, bottleneck_conv)
 
         self.net = []
         for x in range(self.n_repeats):
@@ -252,8 +251,13 @@ class MaskerDPRNN(BaseModel):
     def forward(self, x):
         # bottleneck conv and chunking
         batch, in_chan, n_frames = x.size()
-        x = self.bottleneck_conv(x)  # [batch, bn_chan, n_frames]
-        x = self.chunker(x.unsqueeze(-1))
+        x = self.bottleneck(x)  # [batch, bn_chan, n_frames]
+        x = unfold(
+            x.unsqueeze(-1),
+            kernel_size=(self.chunk_size, 1),
+            padding=(self.chunk_size, 0),
+            stride=(self.hop_size, 1),
+        )
         n_chunks = x.shape[-1]
         x = x.reshape(batch, self.bn_chan, self.chunk_size, n_chunks)
 
@@ -405,11 +409,28 @@ class DPRNN(BaseMaskingNetwork):
             stride=stride,
         )
 
-        self.masker = MaskerDPRNN(
-            n_src, n_filters, bn_chan,
-            out_chan, hid_size, chunk_size, hop_size,
-            n_repeats, norm_type, mask_act, bidirectional,
-            rnn_type, use_mulcat, num_layers, dropout
+        # self.masker = MaskerDPRNN(
+        #     n_src, n_filters, bn_chan,
+        #     out_chan, hid_size, chunk_size, hop_size,
+        #     n_repeats, norm_type, mask_act, bidirectional,
+        #     rnn_type, use_mulcat, num_layers, dropout
+        # )
+        self.masker = asteroid.masknn.recurrent.DPRNN(
+            n_src=n_src,
+            in_chan=n_filters,
+            bn_chan=bn_chan,
+            out_chan=out_chan,
+            hid_size=hid_size,
+            chunk_size=chunk_size,
+            hop_size=hop_size,
+            n_repeats=n_repeats,
+            norm_type=norm_type,
+            mask_act=mask_act,
+            bidirectional=bidirectional,
+            rnn_type=rnn_type,
+            use_mulcat=use_mulcat,
+            num_layers=num_layers,
+            dropout=dropout,
         )
 
         super().__init__(
